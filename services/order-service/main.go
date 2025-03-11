@@ -150,6 +150,7 @@ func cancelOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if order.Status == "CANCELLED" {
+		log.Printf("⚠️ Order %d is already cancelled.", order.ID)
 		http.Error(w, "Orden ya cancelada", http.StatusBadRequest)
 		return
 	}
@@ -158,14 +159,26 @@ func cancelOrder(w http.ResponseWriter, r *http.Request) {
 	var orderItems []OrderItem
 	db.Where("order_id = ?", order.ID).Find(&orderItems)
 
-	// Prepare stock update request for Inventory Service
-	var stockUpdates []map[string]interface{} // Use a map for JSON compatibility
-	for _, item := range orderItems {
-		stockUpdates = append(stockUpdates, map[string]interface{}{
-			"product_id": item.ProductID,
-			"change":     item.Quantity, // Restore stock (positive change)
-		})
+	if len(orderItems) == 0 {
+		log.Printf("❌ No items found for Order %d", order.ID)
+		http.Error(w, "No items found in order", http.StatusInternalServerError)
+		return
 	}
+
+	// Prepare stock update request for Inventory Service
+	var stockUpdates []struct {
+		ProductID uint `json:"product_id"`
+		Change    int  `json:"change"`
+	}
+
+	for _, item := range orderItems {
+		stockUpdates = append(stockUpdates, struct {
+			ProductID uint `json:"product_id"`
+			Change    int  `json:"change"`
+		}{ProductID: item.ProductID, Change: item.Quantity})
+	}
+
+	log.Printf("📡 Sending stock update request to Inventory Service: %+v", stockUpdates)
 
 	// Restore stock in Inventory Service
 	err := updateStockInInventory(stockUpdates)
@@ -178,19 +191,20 @@ func cancelOrder(w http.ResponseWriter, r *http.Request) {
 	// Mark order as cancelled
 	db.Model(&order).Update("status", "CANCELLED")
 
-	log.Printf("✅ Orden %d cancelada, stock restaurado", order.ID)
+	log.Printf("✅ Order %d cancelled, stock restored", order.ID)
 	fmt.Fprintln(w, "Orden cancelada y stock restaurado")
 }
 
-// Update stock in Inventory Service for multiple products
-func updateStockInInventory(stockUpdates []map[string]interface{}) error {
-	requestBody, err := json.Marshal(map[string]interface{}{"items": stockUpdates})
-	if err != nil {
-		log.Println("❌ Failed to marshal stock update request:", err)
-		return err
-	}
+// Function to update stock in Inventory Service
+func updateStockInInventory(stockUpdates []struct {
+	ProductID uint `json:"product_id"`
+	Change    int  `json:"change"`
+}) error {
+	requestBody, _ := json.Marshal(map[string]interface{}{
+		"items": stockUpdates,
+	})
 
-	log.Println("📡 Sending stock update request to Inventory Service:", string(requestBody))
+	log.Printf("📡 Sending request to Inventory Service: %s", string(requestBody))
 
 	resp, err := http.Post("http://inventory-service:8082/inventory/update", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
@@ -200,7 +214,7 @@ func updateStockInInventory(stockUpdates []map[string]interface{}) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Println("❌ Inventory Service returned unexpected status:", resp.StatusCode)
+		log.Printf("❌ Inventory Service returned status: %d", resp.StatusCode)
 		return fmt.Errorf("inventory service returned %d", resp.StatusCode)
 	}
 

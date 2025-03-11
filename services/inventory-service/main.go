@@ -48,7 +48,7 @@ func connectDB() {
 	log.Println("✅ Connected to PostgreSQL and Inventory table migrated")
 }
 
-// Get stock for a given product ID (Dynamic query)
+// Get stock for a given product ID
 func getStock(w http.ResponseWriter, r *http.Request) {
 	productIDStr := r.URL.Query().Get("product_id")
 	if productIDStr == "" {
@@ -68,7 +68,7 @@ func getStock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Stock for product %d: %d", productID, inventory.Stock)
+	log.Printf("📊 Stock for product %d: %d", productID, inventory.Stock)
 	fmt.Fprintf(w, "Stock disponible: %d", inventory.Stock)
 }
 
@@ -80,11 +80,18 @@ func createStock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Registering stock for Product ID: %d with stock: %d", inventory.ProductID, inventory.Stock)
+	log.Printf("📦 Registering stock for Product ID: %d with quantity: %d", inventory.ProductID, inventory.Stock)
+
+	// Check if stock entry already exists
+	var existing Inventory
+	if err := db.First(&existing, "product_id = ?", inventory.ProductID).Error; err == nil {
+		http.Error(w, "Stock entry already exists for this product", http.StatusConflict)
+		return
+	}
 
 	// Save stock in the database
 	if err := db.Create(&inventory).Error; err != nil {
-		log.Println("Error saving stock:", err)
+		log.Println("❌ Error saving stock:", err)
 		http.Error(w, "Error al registrar stock", http.StatusInternalServerError)
 		return
 	}
@@ -93,8 +100,7 @@ func createStock(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "Stock inicial registrado")
 }
 
-// Update stock (reserve or restore)
-// Update stock (reserve or restore multiple products)
+// **🔄 Update stock when orders are placed or canceled**
 func updateStock(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Items []struct {
@@ -104,6 +110,7 @@ func updateStock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		log.Println("❌ Invalid request data:", err)
 		http.Error(w, "Invalid request data", http.StatusBadRequest)
 		return
 	}
@@ -119,7 +126,7 @@ func updateStock(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Check for negative stock
+		// Prevent negative stock
 		newStock := inventory.Stock + item.Change
 		if newStock < 0 {
 			log.Printf("❌ Stock insuficiente for product %d", item.ProductID)
@@ -135,14 +142,52 @@ func updateStock(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "Stock actualizado con éxito")
 }
 
+// **🔧 Adjust stock manually (restocking, theft, loss)**
+func adjustStock(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		ProductID uint   `json:"product_id"`
+		Change    int    `json:"change"`
+		Reason    string `json:"reason"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid request data", http.StatusBadRequest)
+		return
+	}
+
+	// Find the product stock
+	var inventory Inventory
+	if err := db.First(&inventory, "product_id = ?", request.ProductID).Error; err != nil {
+		log.Printf("❌ Product %d not found in inventory", request.ProductID)
+		http.Error(w, "Product not found in inventory", http.StatusNotFound)
+		return
+	}
+
+	// Ensure stock does not go negative
+	newStock := inventory.Stock + request.Change
+	if newStock < 0 {
+		log.Printf("❌ Cannot decrease stock of Product %d below zero", request.ProductID)
+		http.Error(w, "Stock insuficiente", http.StatusBadRequest)
+		return
+	}
+
+	// Update stock in the database
+	db.Model(&inventory).Update("stock", newStock)
+	log.Printf("✅ Stock adjusted for Product %d. Change: %+d. New stock: %d. Reason: %s",
+		request.ProductID, request.Change, newStock, request.Reason)
+
+	fmt.Fprintln(w, "Stock updated successfully")
+}
+
 func main() {
 	connectDB()
 
 	r := chi.NewRouter()
-	r.Get("/inventory", getStock)
-	r.Post("/inventory/update", updateStock)
-	r.Post("/inventory/create", createStock)
+	r.Get("/inventory", getStock)            // ✅ Check stock
+	r.Post("/inventory/create", createStock) // ✅ Create stock
+	r.Post("/inventory/update", updateStock) // ✅ Update stock when orders are placed/canceled
+	r.Post("/inventory/adjust", adjustStock) // ✅ Adjust stock manually (loss, replenishment)
 
-	log.Println("Inventory Service running on :8082")
+	log.Println("📦 Inventory Service running on :8082")
 	http.ListenAndServe(":8082", r)
 }
