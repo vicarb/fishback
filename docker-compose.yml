@@ -1,0 +1,72 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: ecommerce
+      POSTGRES_PASSWORD: password
+      POSTGRES_HOST_AUTH_METHOD: trust  # ✅ Allows connections without password issues
+    ports:
+      - "5432:5432"
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    networks:
+      - ecommerce-network
+
+  order-service:
+    build: ./services/order-service
+    environment:
+      - DATABASE_URL=host=postgres user=postgres dbname=ecommerce password=password sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      inventory-service:
+        condition: service_started
+    ports:
+      - "8081:8081"
+    networks:
+      - ecommerce-network
+
+  inventory-service:
+    build: ./services/inventory-service
+    environment:
+      - DATABASE_URL=host=postgres user=postgres dbname=ecommerce password=password sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8082:8082"
+    networks:
+      - ecommerce-network
+
+  product-service:
+    build: ./services/product-service
+    environment:
+      - DATABASE_URL=host=postgres user=postgres dbname=ecommerce password=password sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+      inventory-service:
+        condition: service_started
+    ports:
+      - "8083:8083"
+    networks:
+      - ecommerce-network
+
+networks:
+  ecommerce-network:
+    driver: bridge
