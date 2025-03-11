@@ -94,24 +94,43 @@ func createStock(w http.ResponseWriter, r *http.Request) {
 }
 
 // Update stock (reserve or restore)
+// Update stock (reserve or restore multiple products)
 func updateStock(w http.ResponseWriter, r *http.Request) {
-	var data struct {
-		ProductID uint `json:"product_id"`
-		Change    int  `json:"change"`
+	var request struct {
+		Items []struct {
+			ProductID uint `json:"product_id"`
+			Change    int  `json:"change"`
+		} `json:"items"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, "Invalid request data", http.StatusBadRequest)
 		return
 	}
 
-	var inventory Inventory
-	if err := db.First(&inventory, "product_id = ?", data.ProductID).Error; err != nil || inventory.Stock+data.Change < 0 {
-		http.Error(w, "Stock insuficiente o producto no encontrado", http.StatusBadRequest)
-		return
-	}
+	log.Println("📡 Received stock update request:", request)
 
-	db.Exec("UPDATE inventories SET stock = stock + ? WHERE product_id = ?", data.Change, data.ProductID)
-	log.Printf("Stock updated for product %d. Change: %d. New stock: %d", data.ProductID, data.Change, inventory.Stock+data.Change)
+	// Process each stock change
+	for _, item := range request.Items {
+		var inventory Inventory
+		if err := db.First(&inventory, "product_id = ?", item.ProductID).Error; err != nil {
+			log.Printf("❌ Product %d not found in inventory", item.ProductID)
+			http.Error(w, "Stock insuficiente o producto no encontrado", http.StatusBadRequest)
+			return
+		}
+
+		// Check for negative stock
+		newStock := inventory.Stock + item.Change
+		if newStock < 0 {
+			log.Printf("❌ Stock insuficiente for product %d", item.ProductID)
+			http.Error(w, "Stock insuficiente", http.StatusBadRequest)
+			return
+		}
+
+		// Update stock
+		db.Model(&inventory).Update("stock", newStock)
+		log.Printf("✅ Stock updated for product %d. New stock: %d", item.ProductID, newStock)
+	}
 
 	fmt.Fprintln(w, "Stock actualizado con éxito")
 }

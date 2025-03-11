@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,14 +23,23 @@ var (
 )
 
 // Order model
+// Order Model with Multiple Products
 type Order struct {
+	ID       uint        `gorm:"primaryKey"`
+	Products []OrderItem `gorm:"foreignKey:OrderID"`
+	Status   string      `gorm:"index"` // "PENDING", "CONFIRMED", "CANCELLED"
+}
+
+// OrderItem Model (Each order can have multiple items)
+type OrderItem struct {
 	ID        uint `gorm:"primaryKey"`
-	ProductID uint `gorm:"index"`
+	OrderID   uint
+	ProductID uint
 	Quantity  int
-	Status    string `gorm:"index"` // "PENDING", "CONFIRMED", "CANCELLED"
 }
 
 // Connect to PostgreSQL with retries
+
 func connectDB() {
 	dsn := "host=postgres user=postgres dbname=ecommerce password=password sslmode=disable"
 
@@ -47,10 +57,12 @@ func connectDB() {
 		log.Fatal("❌ Failed to connect to database:", err)
 	}
 
-	if err := db.AutoMigrate(&Order{}); err != nil {
-		log.Fatal("❌ Failed to migrate Order table:", err)
+	// Ensure both tables exist
+	if err := db.AutoMigrate(&Order{}, &OrderItem{}); err != nil {
+		log.Fatal("❌ Failed to migrate Order and OrderItem tables:", err)
 	}
-	log.Println("✅ Connected to PostgreSQL and Order table migrated")
+
+	log.Println("✅ Connected to PostgreSQL and migrated Order + OrderItem tables")
 }
 
 // Connect to Redis
@@ -64,35 +76,63 @@ func connectRedis() {
 }
 
 // Create an order (checks stock in Inventory Service)
+// Create an order with multiple products
 func createOrder(w http.ResponseWriter, r *http.Request) {
-	productID := uint(1) // Example
-	quantity := 1
-
-	// Prevent simultaneous purchases using Redis lock
-	lockKey := fmt.Sprintf("lock:product:%d", productID)
-	if ok, _ := rdb.SetNX(ctx, lockKey, "locked", 5*time.Second).Result(); !ok {
-		http.Error(w, "Producto en proceso de compra por otro usuario", http.StatusConflict)
-		return
+	var request struct {
+		Products []struct {
+			ProductID uint `json:"product_id"`
+			Quantity  int  `json:"quantity"`
+		} `json:"products"`
 	}
-	defer rdb.Del(ctx, lockKey)
 
-	// Check stock in Inventory Service
-	stock, err := checkStock(productID)
-	if err != nil || stock < quantity {
-		http.Error(w, "Stock insuficiente", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid request data", http.StatusBadRequest)
 		return
 	}
 
-	// Create order in PENDING state
-	order := Order{ProductID: productID, Quantity: quantity, Status: "PENDING"}
+	// Redis lock: prevent simultaneous purchases
+	for _, item := range request.Products {
+		lockKey := fmt.Sprintf("lock:product:%d", item.ProductID)
+		if ok, _ := rdb.SetNX(ctx, lockKey, "locked", 5*time.Second).Result(); !ok {
+			http.Error(w, "Producto en proceso de compra por otro usuario", http.StatusConflict)
+			return
+		}
+		defer rdb.Del(ctx, lockKey)
+	}
+
+	// Verify stock for all products
+	for _, item := range request.Products {
+		stock, err := checkStock(item.ProductID)
+		if err != nil || stock < item.Quantity {
+			http.Error(w, "Stock insuficiente para uno o más productos", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Create new order
+	order := Order{Status: "PENDING"}
 	db.Create(&order)
 
-	// Reduce stock in Inventory Service (Reserve)
-	updateStock(productID, -quantity)
+	// Process each product in the order
+	for _, item := range request.Products {
+		orderItem := OrderItem{
+			OrderID:   order.ID,
+			ProductID: item.ProductID,
+			Quantity:  item.Quantity,
+		}
+		db.Create(&orderItem)
 
+		// Reduce stock in Inventory Service
+		updateStock(item.ProductID, -item.Quantity)
+	}
+
+	log.Printf("Orden %d creada con %d productos", order.ID, len(request.Products))
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintln(w, "Orden creada con éxito")
 }
+
+// Cancel an order and restore stock for all products
+// Cancel an order and restore stock for all products
 func cancelOrder(w http.ResponseWriter, r *http.Request) {
 	var data struct {
 		OrderID uint `json:"order_id"`
@@ -109,20 +149,63 @@ func cancelOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if order is already canceled
 	if order.Status == "CANCELLED" {
 		http.Error(w, "Orden ya cancelada", http.StatusBadRequest)
 		return
 	}
 
-	// Mark order as canceled
-	db.Model(&order).Update("status", "CANCELLED")
+	// Retrieve all items in the order
+	var orderItems []OrderItem
+	db.Where("order_id = ?", order.ID).Find(&orderItems)
+
+	// Prepare stock update request for Inventory Service
+	var stockUpdates []map[string]interface{} // Use a map for JSON compatibility
+	for _, item := range orderItems {
+		stockUpdates = append(stockUpdates, map[string]interface{}{
+			"product_id": item.ProductID,
+			"change":     item.Quantity, // Restore stock (positive change)
+		})
+	}
 
 	// Restore stock in Inventory Service
-	updateStock(order.ProductID, order.Quantity)
+	err := updateStockInInventory(stockUpdates)
+	if err != nil {
+		log.Println("❌ Error restoring stock in Inventory Service:", err)
+		http.Error(w, "Error al restaurar stock", http.StatusInternalServerError)
+		return
+	}
 
-	log.Printf("Orden %d cancelada, stock restaurado", order.ID)
+	// Mark order as cancelled
+	db.Model(&order).Update("status", "CANCELLED")
+
+	log.Printf("✅ Orden %d cancelada, stock restaurado", order.ID)
 	fmt.Fprintln(w, "Orden cancelada y stock restaurado")
+}
+
+// Update stock in Inventory Service for multiple products
+func updateStockInInventory(stockUpdates []map[string]interface{}) error {
+	requestBody, err := json.Marshal(map[string]interface{}{"items": stockUpdates})
+	if err != nil {
+		log.Println("❌ Failed to marshal stock update request:", err)
+		return err
+	}
+
+	log.Println("📡 Sending stock update request to Inventory Service:", string(requestBody))
+
+	resp, err := http.Post("http://inventory-service:8082/inventory/update", "application/json", bytes.NewBuffer(requestBody))
+	if err != nil {
+		log.Println("❌ Error contacting Inventory Service:", err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Println("❌ Inventory Service returned unexpected status:", resp.StatusCode)
+		return fmt.Errorf("inventory service returned %d", resp.StatusCode)
+	}
+
+	log.Println("✅ Stock successfully restored in Inventory Service")
+	return nil
 }
 
 // Check stock in Inventory Service
