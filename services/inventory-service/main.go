@@ -73,29 +73,43 @@ func getStock(w http.ResponseWriter, r *http.Request) {
 }
 
 // Register initial stock for a new product
+// Register initial stock for a new product
 func createStock(w http.ResponseWriter, r *http.Request) {
-	var inventory Inventory
-	if err := json.NewDecoder(r.Body).Decode(&inventory); err != nil {
-		http.Error(w, "Error en datos", http.StatusBadRequest)
+	var request struct {
+		ProductID uint `json:"product_id"`
+		Stock     int  `json:"stock"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		log.Println("❌ Error decoding stock request:", err)
+		http.Error(w, "Invalid stock request", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("📦 Registering stock for Product ID: %d with quantity: %d", inventory.ProductID, inventory.Stock)
+	if request.ProductID == 0 {
+		log.Println("❌ Error: Received Product ID 0 in stock registration")
+		http.Error(w, "Invalid product ID", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("📦 Registering stock for Product ID: %d with quantity: %d", request.ProductID, request.Stock)
 
 	// Check if stock entry already exists
 	var existing Inventory
-	if err := db.First(&existing, "product_id = ?", inventory.ProductID).Error; err == nil {
+	if err := db.First(&existing, "product_id = ?", request.ProductID).Error; err == nil {
 		http.Error(w, "Stock entry already exists for this product", http.StatusConflict)
 		return
 	}
 
 	// Save stock in the database
+	inventory := Inventory{ProductID: request.ProductID, Stock: request.Stock}
 	if err := db.Create(&inventory).Error; err != nil {
 		log.Println("❌ Error saving stock:", err)
 		http.Error(w, "Error al registrar stock", http.StatusInternalServerError)
 		return
 	}
 
+	log.Printf("✅ Stock successfully registered for Product ID: %d", request.ProductID)
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintln(w, "Stock inicial registrado")
 }

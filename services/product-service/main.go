@@ -47,6 +47,7 @@ func connectDB() {
 }
 
 // Create product and register stock in Inventory Service
+// Create product and register stock in Inventory Service
 func createProduct(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Name  string  `json:"name"`
@@ -61,15 +62,30 @@ func createProduct(w http.ResponseWriter, r *http.Request) {
 
 	// Create product in Product Service
 	product := Product{Name: request.Name, Price: request.Price}
-	db.Create(&product)
+	result := db.Create(&product)
+	if result.Error != nil {
+		log.Println("❌ Error creating product:", result.Error)
+		http.Error(w, "Error al crear producto", http.StatusInternalServerError)
+		return
+	}
+
+	// Ensure product ID is actually assigned
+	if product.ID == 0 {
+		log.Println("❌ Error: Product ID is 0 after creation")
+		http.Error(w, "Invalid product ID", http.StatusInternalServerError)
+		return
+	}
+
 	log.Printf("✅ Created product: %s (ID: %d, Price: %.2f)", product.Name, product.ID, product.Price)
 
-	// Register stock in Inventory Service
-	err := registerStock(product.ID, request.Stock)
-	if err != nil {
-		log.Println("❌ Error registering stock:", err)
-		http.Error(w, "Error al registrar stock", http.StatusInternalServerError)
-		return
+	// Register stock in Inventory Service with retry
+	for attempt := 1; attempt <= 3; attempt++ {
+		err := registerStock(product.ID, request.Stock)
+		if err == nil {
+			break // Success
+		}
+		log.Printf("⏳ Retrying stock registration for Product ID %d (Attempt %d/3)", product.ID, attempt)
+		time.Sleep(200 * time.Millisecond) // Small delay before retrying
 	}
 
 	w.WriteHeader(http.StatusCreated)
@@ -77,11 +93,22 @@ func createProduct(w http.ResponseWriter, r *http.Request) {
 }
 
 // Register stock in Inventory Service
+// Register stock in Inventory Service
 func registerStock(productID uint, stock int) error {
+	if productID == 0 {
+		log.Println("❌ Error: Trying to register stock with Product ID 0")
+		return fmt.Errorf("invalid product ID")
+	}
+
+	// Wait a short time to ensure the Product ID is committed
+	time.Sleep(100 * time.Millisecond) // Small delay for database consistency
+
 	requestBody, _ := json.Marshal(map[string]interface{}{
 		"product_id": productID,
 		"stock":      stock,
 	})
+
+	log.Printf("📡 Sending stock registration request: %s", string(requestBody))
 
 	resp, err := http.Post("http://inventory-service:8082/inventory/create", "application/json",
 		bytes.NewBuffer(requestBody))
@@ -93,7 +120,7 @@ func registerStock(productID uint, stock int) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		log.Println("❌ Inventory Service returned unexpected status:", resp.StatusCode)
+		log.Printf("❌ Inventory Service returned unexpected status: %d", resp.StatusCode)
 		return fmt.Errorf("inventory service returned %d", resp.StatusCode)
 	}
 
