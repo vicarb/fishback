@@ -29,12 +29,15 @@ services:
     build: ./services/order-service
     environment:
       - DATABASE_URL=host=postgres user=postgres dbname=ecommerce password=password sslmode=disable
+      - AUTH_SERVICE_URL=http://auth-service:8084
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
       inventory-service:
+        condition: service_started
+      auth-service:
         condition: service_started
     ports:
       - "8081:8081"
@@ -64,6 +67,19 @@ services:
         condition: service_started
     ports:
       - "8083:8083"
+    networks:
+      - ecommerce-network
+
+  auth-service:
+    build: ./services/auth-service
+    environment:
+      - DATABASE_URL=host=postgres user=postgres dbname=ecommerce password=password sslmode=disable
+      - JWT_SECRET=supersecretkey
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8084:8084"
     networks:
       - ecommerce-network
 
