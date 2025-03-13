@@ -28,7 +28,7 @@ type Order struct {
 	ID       uint        `gorm:"primaryKey"`
 	Email    string      `json:"email"` // Customer or guest email
 	Products []OrderItem `gorm:"foreignKey:OrderID"`
-	Status   string      `gorm:"index"`
+	Status   string      `gorm:"index"` // PENDING, CONFIRMED, CANCELLED, SHIPPED, DELIVERED
 }
 
 // OrderItem Model
@@ -49,17 +49,14 @@ type Claims struct {
 // Connect to PostgreSQL
 func connectDB() {
 	dsn := "host=postgres user=postgres dbname=ecommerce password=password sslmode=disable"
-
 	var err error
 	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatal("❌ Failed to connect to database:", err)
 	}
-
 	if err := db.AutoMigrate(&Order{}, &OrderItem{}); err != nil {
 		log.Fatal("❌ Failed to migrate Order and OrderItem tables:", err)
 	}
-
 	log.Println("✅ Connected to PostgreSQL and migrated Order + OrderItem tables")
 }
 
@@ -74,8 +71,8 @@ func connectRedis() {
 }
 
 // Middleware: Authenticate User
-func authMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		tokenStr := r.Header.Get("Authorization")
 		if tokenStr == "" {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -96,26 +93,26 @@ func authMiddleware(next http.Handler) http.Handler {
 		r.Header.Set("User-Email", claims.Email)
 		r.Header.Set("User-Role", claims.Role)
 
-		next.ServeHTTP(w, r)
-	})
+		next(w, r)
+	}
 }
 
 // Middleware: Admin Access Only
-func adminMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func adminMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		role := r.Header.Get("User-Role")
 		if role != "admin" {
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
-		next.ServeHTTP(w, r)
-	})
+		next(w, r)
+	}
 }
 
 // Create an Order (Guest & Customers)
 func createOrder(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		Email    string `json:"email,omitempty"` // Guests provide this, customers do not
+		Email    string `json:"email,omitempty"`
 		Products []struct {
 			ProductID uint `json:"product_id"`
 			Quantity  int  `json:"quantity"`
@@ -127,7 +124,6 @@ func createOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract user info from JWT (if authenticated)
 	tokenStr := r.Header.Get("Authorization")
 	tokenStr = strings.TrimPrefix(tokenStr, "Bearer ")
 
@@ -138,12 +134,11 @@ func createOrder(w http.ResponseWriter, r *http.Request) {
 		})
 		if err == nil {
 			if claims, ok := token.Claims.(*Claims); ok && token.Valid {
-				email = claims.Email // Use authenticated email
+				email = claims.Email
 			}
 		}
 	}
 
-	// If the user is a guest, they MUST provide an email
 	if email == "" {
 		if request.Email == "" {
 			http.Error(w, "Guest users must provide an email", http.StatusBadRequest)
@@ -152,16 +147,11 @@ func createOrder(w http.ResponseWriter, r *http.Request) {
 		email = request.Email
 	}
 
-	// Continue with order processing
 	order := Order{Email: email, Status: "PENDING"}
 	db.Create(&order)
 
 	for _, item := range request.Products {
-		orderItem := OrderItem{
-			OrderID:   order.ID,
-			ProductID: item.ProductID,
-			Quantity:  item.Quantity,
-		}
+		orderItem := OrderItem{OrderID: order.ID, ProductID: item.ProductID, Quantity: item.Quantity}
 		db.Create(&orderItem)
 		updateStock(item.ProductID, -item.Quantity)
 	}
@@ -171,48 +161,56 @@ func createOrder(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "Order created successfully")
 }
 
-// Get Orders (Customers see their own, Admin sees all)
-func getOrders(w http.ResponseWriter, r *http.Request) {
-	userEmail := r.Header.Get("User-Email")
-	userRole := r.Header.Get("User-Role")
+// Update stock in Inventory Service
+func updateStock(productID uint, quantity int) {
+	db.Exec("UPDATE inventories SET stock = stock + ? WHERE product_id = ?", quantity, productID)
+}
 
+// Admin: View All Orders
+func getAllOrders(w http.ResponseWriter, r *http.Request) {
 	var orders []Order
-	if userRole == "admin" {
-		db.Preload("Products").Find(&orders) // Admin sees all
-	} else {
-		db.Preload("Products").Where("email = ?", userEmail).Find(&orders) // Customer sees their own
-	}
-
+	db.Preload("Products").Find(&orders)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(orders)
 }
 
-// Cancel an Order (Customers cancel their own, Admin cancels any)
-func cancelOrder(w http.ResponseWriter, r *http.Request) {
-	var request struct {
+// Admin: Confirm an Order
+func confirmOrder(w http.ResponseWriter, r *http.Request) {
+	var data struct {
 		OrderID uint `json:"order_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 		http.Error(w, "Invalid request data", http.StatusBadRequest)
 		return
 	}
 
 	var order Order
-	if err := db.First(&order, request.OrderID).Error; err != nil {
+	if err := db.First(&order, "id = ?", data.OrderID).Error; err != nil {
 		http.Error(w, "Order not found", http.StatusNotFound)
 		return
 	}
 
-	// Only allow cancellation by the order owner or admin
-	userEmail := r.Header.Get("User-Email")
-	userRole := r.Header.Get("User-Role")
+	db.Model(&order).Update("status", "CONFIRMED")
+	log.Printf("✅ Order %d confirmed", order.ID)
+	fmt.Fprintln(w, "Order confirmed successfully")
+}
 
-	if userRole != "admin" && order.Email != userEmail {
-		http.Error(w, "You can only cancel your own orders", http.StatusForbidden)
+// Admin: Cancel an Order (Restores Stock)
+func cancelOrderAdmin(w http.ResponseWriter, r *http.Request) {
+	var data struct {
+		OrderID uint `json:"order_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		http.Error(w, "Invalid request data", http.StatusBadRequest)
 		return
 	}
 
-	// Restore stock
+	var order Order
+	if err := db.First(&order, "id = ?", data.OrderID).Error; err != nil {
+		http.Error(w, "Order not found", http.StatusNotFound)
+		return
+	}
+
 	var orderItems []OrderItem
 	db.Where("order_id = ?", order.ID).Find(&orderItems)
 
@@ -220,23 +218,9 @@ func cancelOrder(w http.ResponseWriter, r *http.Request) {
 		updateStock(item.ProductID, item.Quantity)
 	}
 
-	// Mark order as cancelled
 	db.Model(&order).Update("status", "CANCELLED")
-
-	log.Printf("✅ Order %d cancelled by %s", order.ID, userEmail)
+	log.Printf("✅ Order %d cancelled", order.ID)
 	fmt.Fprintln(w, "Order cancelled successfully")
-}
-
-// Check stock from Inventory Service
-func checkStock(productID uint) (int, error) {
-	var stock int
-	err := db.Raw("SELECT stock FROM inventories WHERE product_id = ?", productID).Scan(&stock).Error
-	return stock, err
-}
-
-// Update stock in Inventory Service
-func updateStock(productID uint, quantity int) {
-	db.Exec("UPDATE inventories SET stock = stock + ? WHERE product_id = ?", quantity, productID)
 }
 
 func main() {
@@ -244,13 +228,10 @@ func main() {
 	connectRedis()
 
 	r := chi.NewRouter()
-
-	// Order creation is open to guests and authenticated users
 	r.Post("/orders", createOrder)
-
-	// Authenticated users required for order listing and cancellation
-	r.Get("/orders", authMiddleware(http.HandlerFunc(getOrders)).ServeHTTP)
-	r.Post("/orders/cancel", authMiddleware(http.HandlerFunc(cancelOrder)).ServeHTTP)
+	r.Get("/orders", authMiddleware(adminMiddleware(getAllOrders)))
+	r.Patch("/orders/confirm", authMiddleware(adminMiddleware(confirmOrder)))
+	r.Patch("/orders/cancel", authMiddleware(adminMiddleware(cancelOrderAdmin)))
 
 	log.Println("📦 Order Service running on :8081")
 	http.ListenAndServe(":8081", r)
