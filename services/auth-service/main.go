@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/rs/cors" // Import CORS middleware package
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -33,6 +34,7 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+// Connect to PostgreSQL
 func connectDB() {
 	dsn := "host=postgres user=postgres dbname=ecommerce password=password sslmode=disable"
 	var err error
@@ -53,6 +55,16 @@ func connectDB() {
 		}
 	}
 	log.Println("✅ Database connected and migrated")
+}
+
+// Enable CORS Middleware
+func corsMiddleware() func(http.Handler) http.Handler {
+	return cors.New(cors.Options{
+		AllowedOrigins:   []string{"http://127.0.0.1:3000", "http://localhost:3000"}, // ✅ Allow frontend
+		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		AllowCredentials: true, // ✅ Allows cookies & authorization headers
+	}).Handler
 }
 
 // Register customer
@@ -169,9 +181,11 @@ func me(w http.ResponseWriter, r *http.Request) {
 func main() {
 	connectDB()
 	r := chi.NewRouter()
+	r.Use(corsMiddleware()) // ✅ Apply CORS middleware
+
 	r.Post("/auth/register", register)
 	r.Post("/auth/login", login)
-	r.Get("/auth/me", func(w http.ResponseWriter, r *http.Request) { // ✅ Fixed Middleware
+	r.Get("/auth/me", func(w http.ResponseWriter, r *http.Request) {
 		authMiddleware(http.HandlerFunc(me)).ServeHTTP(w, r)
 	})
 
