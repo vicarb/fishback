@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -46,7 +47,6 @@ func connectDB() {
 	log.Println("✅ Connected to PostgreSQL and Product table migrated")
 }
 
-// Create product and register stock in Inventory Service
 // Create product and register stock in Inventory Service
 func createProduct(w http.ResponseWriter, r *http.Request) {
 	var request struct {
@@ -92,7 +92,6 @@ func createProduct(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Producto creado con éxito")
 }
 
-// Register stock in Inventory Service
 // Register stock in Inventory Service
 func registerStock(productID uint, stock int) error {
 	if productID == 0 {
@@ -146,6 +145,15 @@ func main() {
 	connectDB()
 
 	r := chi.NewRouter()
+
+	// ✅ Enable CORS for Next.js Frontend
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"http://127.0.0.1:3000", "http://localhost:3000"}, // Add frontend URLs
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization"},
+		AllowCredentials: true,
+	}))
+
 	r.Post("/products", createProduct)
 	r.Get("/products", getProducts)
 
