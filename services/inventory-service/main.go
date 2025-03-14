@@ -48,6 +48,23 @@ func connectDB() {
 	log.Println("✅ Connected to PostgreSQL and Inventory table migrated")
 }
 
+// 🛠️ Enable CORS Middleware
+func enableCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow all origins
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		// Handle OPTIONS preflight request
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Get stock for a given product ID
 func getStock(w http.ResponseWriter, r *http.Request) {
 	productIDStr := r.URL.Query().Get("product_id")
@@ -72,7 +89,6 @@ func getStock(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Stock disponible: %d", inventory.Stock)
 }
 
-// Register initial stock for a new product
 // Register initial stock for a new product
 func createStock(w http.ResponseWriter, r *http.Request) {
 	var request struct {
@@ -114,7 +130,7 @@ func createStock(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "Stock inicial registrado")
 }
 
-// **🔄 Update stock when orders are placed or canceled**
+// 🔄 Update stock when orders are placed or canceled
 func updateStock(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Items []struct {
@@ -156,7 +172,7 @@ func updateStock(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "Stock actualizado con éxito")
 }
 
-// **🔧 Adjust stock manually (restocking, theft, loss)**
+// 🔧 Adjust stock manually (restocking, theft, loss)
 func adjustStock(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		ProductID uint   `json:"product_id"`
@@ -197,6 +213,8 @@ func main() {
 	connectDB()
 
 	r := chi.NewRouter()
+	r.Use(enableCORS) // ✅ Apply CORS middleware globally
+
 	r.Get("/inventory", getStock)            // ✅ Check stock
 	r.Post("/inventory/create", createStock) // ✅ Create stock
 	r.Post("/inventory/update", updateStock) // ✅ Update stock when orders are placed/canceled
