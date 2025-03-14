@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import CartSidebar from "./CartSidebar";
 
 type Product = {
   ID: number;
@@ -11,6 +12,8 @@ type Product = {
 export default function ProductList() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [cart, setCart] = useState<Product[]>([]);
 
   useEffect(() => {
     async function fetchProducts() {
@@ -28,18 +31,31 @@ export default function ProductList() {
       setLoading(false);
     }
     fetchProducts();
+
+    // Load cart from localStorage
+    const storedCart = JSON.parse(localStorage.getItem("cart") || "[]");
+    setCart(storedCart);
   }, []);
 
   function addToCart(product: Product) {
-    let cart = JSON.parse(localStorage.getItem("cart") || "[]");
-    cart.push(product);
-    localStorage.setItem("cart", JSON.stringify(cart));
+    let updatedCart = [...cart];
+    const existingItem = updatedCart.find((item) => item.ID === product.ID);
+
+    if (existingItem) {
+      existingItem.quantity += 1;
+    } else {
+      updatedCart.push({ ...product, quantity: 1 });
+    }
+
+    setCart(updatedCart);
+    localStorage.setItem("cart", JSON.stringify(updatedCart));
+    setIsCartOpen(true); // ✅ Sidebar stays open, but doesn't block adding more items
   }
 
   if (loading) return <p>Loading products...</p>;
 
   return (
-    <div className="p-4">
+    <div className="p-4 relative">
       <h2 className="text-xl font-bold mb-4">Products</h2>
       <div className="grid grid-cols-2 gap-4">
         {products.map((product) => (
@@ -59,6 +75,7 @@ export default function ProductList() {
           </div>
         ))}
       </div>
+      <CartSidebar isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} setCart={setCart} />
     </div>
   );
 }
