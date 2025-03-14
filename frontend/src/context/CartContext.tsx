@@ -50,6 +50,13 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     });
   }
 
+  function updateCartQuantity(productId: number, quantity: number) {
+    setCart((prev) =>
+      prev.map((item) => (item.ID === productId ? { ...item, quantity: Math.max(1, quantity) } : item))
+    );
+  }
+  
+
   function removeFromCart(id: number) {
     setCart((prev) => prev.filter((item) => item.ID !== id));
   }
@@ -59,7 +66,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <CartContext.Provider value={{ cart, addToCart, removeFromCart, clearCart }}>
+    <CartContext.Provider value={{ cart, addToCart, removeFromCart, clearCart, updateCartQuantity }}>
       {isMounted && children} {/* ✅ Prevents hydration mismatch */}
     </CartContext.Provider>
   );
