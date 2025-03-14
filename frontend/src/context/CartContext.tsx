@@ -5,56 +5,53 @@ type CartItem = {
   ID: number;
   name: string;
   price: number;
-  stock?: number;
   quantity: number;
 };
 
 type CartContextType = {
   cart: CartItem[];
   addToCart: (product: CartItem) => void;
-  updateQuantity: (ID: number, quantity: number) => void;
-  removeFromCart: (ID: number) => void;
+  removeFromCart: (id: number) => void;
   clearCart: () => void;
 };
 
-const CartContext = createContext<CartContextType | null>(null);
+const CartContext = createContext<CartContextType | undefined>(undefined);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [isMounted, setIsMounted] = useState(false); // ✅ Fix hydration issue
 
-  // Load cart from localStorage on mount
+  // Load cart from localStorage after mounting
   useEffect(() => {
-    const storedCart = JSON.parse(localStorage.getItem("cart") || "[]");
-    setCart(storedCart);
+    setIsMounted(true);
+    const storedCart = localStorage.getItem("cart");
+    if (storedCart) {
+      setCart(JSON.parse(storedCart));
+    }
   }, []);
 
   // Save cart to localStorage whenever it changes
   useEffect(() => {
-    localStorage.setItem("cart", JSON.stringify(cart));
-  }, [cart]);
+    if (isMounted) {
+      localStorage.setItem("cart", JSON.stringify(cart));
+    }
+  }, [cart, isMounted]);
 
   function addToCart(product: CartItem) {
-    setCart((prevCart) => {
-      const existing = prevCart.find((item) => item.ID === product.ID);
-      if (existing) {
-        return prevCart.map((item) =>
-          item.ID === product.ID ? { ...item, quantity: item.quantity + 1 } : item
+    setCart((prev) => {
+      const existingItem = prev.find((item) => item.ID === product.ID);
+      if (existingItem) {
+        return prev.map((item) =>
+          item.ID === product.ID ? { ...item, quantity: item.quantity + product.quantity } : item
         );
       } else {
-        return [...prevCart, { ...product, quantity: 1 }];
+        return [...prev, product];
       }
     });
   }
 
-  function updateQuantity(ID: number, quantity: number) {
-    if (quantity < 1) return;
-    setCart((prevCart) =>
-      prevCart.map((item) => (item.ID === ID ? { ...item, quantity } : item))
-    );
-  }
-
-  function removeFromCart(ID: number) {
-    setCart((prevCart) => prevCart.filter((item) => item.ID !== ID));
+  function removeFromCart(id: number) {
+    setCart((prev) => prev.filter((item) => item.ID !== id));
   }
 
   function clearCart() {
@@ -62,15 +59,16 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <CartContext.Provider value={{ cart, addToCart, updateQuantity, removeFromCart, clearCart }}>
-      {children}
+    <CartContext.Provider value={{ cart, addToCart, removeFromCart, clearCart }}>
+      {isMounted && children} {/* ✅ Prevents hydration mismatch */}
     </CartContext.Provider>
   );
 }
 
-// Custom hook to use CartContext
 export function useCart() {
   const context = useContext(CartContext);
-  if (!context) throw new Error("useCart must be used within a CartProvider");
+  if (!context) {
+    throw new Error("useCart must be used within a CartProvider");
+  }
   return context;
 }

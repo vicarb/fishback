@@ -1,65 +1,58 @@
 "use client";
 import { useCart } from "@/context/CartContext";
+import { useState, useEffect } from "react";
 
-export default function CartSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const { cart, updateQuantity, removeFromCart } = useCart();
+export default function CartSidebar() {
+  const { cart, removeFromCart } = useCart();
+  const [isOpen, setIsOpen] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
 
-  function getTotalPrice() {
-    return cart.reduce((total, item) => total + item.price * item.quantity, 0).toFixed(2);
-  }
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
-  function handleOverlayClick(e: React.MouseEvent<HTMLDivElement>) {
-    if ((e.target as HTMLElement).id === "cart-overlay") {
-      onClose();
-    }
+  function toggleSidebar() {
+    setIsOpen(!isOpen);
   }
 
   return (
-    <div
-      id="cart-overlay"
-      className={`fixed inset-0 transition-opacity backdrop-blur-lg ${
-        isOpen ? "visible opacity-100" : "invisible opacity-0"
-      }`}
-      onClick={handleOverlayClick}
-    >
-      <div
-        className={`fixed top-0 right-0 h-full w-80 bg-white shadow-lg transform transition-transform ${
-          isOpen ? "translate-x-0" : "translate-x-full"
-        }`}
+    <>
+      {/* Button to open sidebar */}
+      <button
+        onClick={toggleSidebar}
+        className="fixed top-4 right-4 bg-blue-500 text-white px-4 py-2 rounded"
       >
-        <div className="p-4 border-b flex justify-between items-center">
-          <h2 className="text-lg font-bold">Cart</h2>
-          <button onClick={onClose} className="text-gray-600 text-2xl">&times;</button>
-        </div>
-        <div className="p-4 overflow-y-auto max-h-[70vh]">
+        Cart ({isMounted ? cart.length : 0})
+      </button>
+
+      {/* Sidebar */}
+      <div
+        className={`fixed top-0 right-0 h-full w-64 bg-white shadow-lg transform ${
+          isOpen ? "translate-x-0" : "translate-x-full"
+        } transition-transform duration-300 ease-in-out`}
+      >
+        <button onClick={toggleSidebar} className="m-4 text-gray-600">
+          ✖ Close
+        </button>
+        <h2 className="text-lg font-bold p-4">Shopping Cart</h2>
+        <div className="p-4">
           {cart.length === 0 ? (
-            <p className="text-gray-500">Your cart is empty</p>
+            <p>Your cart is empty</p>
           ) : (
             cart.map((item) => (
-              <div key={item.ID} className="flex justify-between items-center border-b py-2">
-                <div>
-                  <h3 className="font-bold">{item.name}</h3>
-                  <p>${item.price.toFixed(2)}</p>
-                  <div className="flex items-center mt-1">
-                    <button onClick={() => updateQuantity(item.ID, item.quantity - 1)} className="px-2 py-1 border">-</button>
-                    <span className="px-3">{item.quantity}</span>
-                    <button onClick={() => updateQuantity(item.ID, item.quantity + 1)} className="px-2 py-1 border">+</button>
-                  </div>
-                </div>
-                <button onClick={() => removeFromCart(item.ID)} className="text-red-500">Remove</button>
+              <div key={item.ID} className="flex justify-between items-center mb-2">
+                <span>{item.name} x{item.quantity}</span>
+                <button
+                  onClick={() => removeFromCart(item.ID)}
+                  className="text-red-500 text-sm"
+                >
+                  Remove
+                </button>
               </div>
             ))
           )}
         </div>
-        {cart.length > 0 && (
-          <div className="p-4 border-t">
-            <p className="text-lg font-bold">Total: ${getTotalPrice()}</p>
-            <button className="w-full bg-blue-500 text-white py-2 rounded mt-2">
-              Checkout
-            </button>
-          </div>
-        )}
       </div>
-    </div>
+    </>
   );
 }

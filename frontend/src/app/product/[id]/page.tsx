@@ -5,7 +5,9 @@ import { useCart } from "@/context/CartContext";
 
 export default function ProductDetail() {
   const { id } = useParams();
+  const productId = Number(id);
   const { addToCart } = useCart();
+
   const [product, setProduct] = useState<any>(null);
   const [stock, setStock] = useState<number | null>(null);
   const [quantity, setQuantity] = useState(1);
@@ -14,10 +16,10 @@ export default function ProductDetail() {
   useEffect(() => {
     async function fetchProduct() {
       try {
-        const res = await fetch(`http://localhost:8083/products/${id}`);
+        const res = await fetch(`http://localhost:8083/products/${productId}`);
         const productData = await res.json();
 
-        const stockRes = await fetch(`http://localhost:8082/inventory?product_id=${id}`);
+        const stockRes = await fetch(`http://localhost:8082/inventory?product_id=${productId}`);
         const stockText = await stockRes.text();
         const stockValue = parseInt(stockText.replace("Stock disponible: ", ""), 10);
 
@@ -30,7 +32,7 @@ export default function ProductDetail() {
       }
     }
     fetchProduct();
-  }, [id]);
+  }, [productId]);
 
   if (loading) return <p>Loading product details...</p>;
   if (!product) return <p>Product not found.</p>;
@@ -62,7 +64,8 @@ export default function ProductDetail() {
       <button
         onClick={() => addToCart({ ...product, quantity })}
         disabled={!stock || stock <= 0}
-        className="mt-4 w-full bg-blue-500 text-white py-2 rounded disabled:bg-gray-400"
+        className={`mt-4 w-full text-white py-2 rounded 
+          ${stock && stock > 0 ? "bg-blue-500 hover:bg-blue-600" : "bg-gray-400 cursor-not-allowed"}`}
       >
         Add to Cart
       </button>
