@@ -46,6 +46,18 @@ func connectDB() {
 	}
 	log.Println("✅ Connected to PostgreSQL and Product table migrated")
 }
+func getProduct(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var product Product
+	if err := db.First(&product, id).Error; err != nil {
+		http.Error(w, "Product not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(product)
+}
 
 // Create product and register stock in Inventory Service
 func createProduct(w http.ResponseWriter, r *http.Request) {
@@ -156,6 +168,7 @@ func main() {
 
 	r.Post("/products", createProduct)
 	r.Get("/products", getProducts)
+	r.Get("/products/{id}", getProduct) // ✅ Add this route
 
 	log.Println("📦 Product Service running on :8083")
 	http.ListenAndServe(":8083", r)
