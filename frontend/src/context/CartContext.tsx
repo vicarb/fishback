@@ -10,18 +10,21 @@ type CartItem = {
 
 type CartContextType = {
   cart: CartItem[];
+  isCartOpen: boolean;
+  setCartOpen: (state: boolean) => void;
   addToCart: (product: CartItem) => void;
   removeFromCart: (id: number) => void;
   clearCart: () => void;
+  updateCartQuantity: (id: number, quantity: number) => void;
 };
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [isCartOpen, setCartOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false); // ✅ Fix hydration issue
 
-  // Load cart from localStorage after mounting
   useEffect(() => {
     setIsMounted(true);
     const storedCart = localStorage.getItem("cart");
@@ -30,7 +33,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Save cart to localStorage whenever it changes
   useEffect(() => {
     if (isMounted) {
       localStorage.setItem("cart", JSON.stringify(cart));
@@ -48,6 +50,12 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         return [...prev, product];
       }
     });
+
+    setCartOpen(true); // ✅ Ensure cart opens when an item is added
+  }
+
+  function removeFromCart(id: number) {
+    setCart((prev) => prev.filter((item) => item.ID !== id));
   }
 
   function updateCartQuantity(productId: number, quantity: number) {
@@ -55,19 +63,16 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       prev.map((item) => (item.ID === productId ? { ...item, quantity: Math.max(1, quantity) } : item))
     );
   }
-  
-
-  function removeFromCart(id: number) {
-    setCart((prev) => prev.filter((item) => item.ID !== id));
-  }
 
   function clearCart() {
     setCart([]);
   }
 
   return (
-    <CartContext.Provider value={{ cart, addToCart, removeFromCart, clearCart, updateCartQuantity }}>
-      {isMounted && children} {/* ✅ Prevents hydration mismatch */}
+    <CartContext.Provider
+      value={{ cart, isCartOpen, setCartOpen, addToCart, removeFromCart, clearCart, updateCartQuantity }}
+    >
+      {isMounted && children}
     </CartContext.Provider>
   );
 }

@@ -6,7 +6,7 @@ import { useCart } from "@/context/CartContext";
 export default function ProductDetail() {
   const { id } = useParams();
   const productId = Number(id);
-  const { addToCart } = useCart();
+  const { addToCart, setCartOpen } = useCart(); // ✅ Use setCartOpen
 
   const [product, setProduct] = useState<any>(null);
   const [stock, setStock] = useState<number | null>(null);
@@ -62,7 +62,10 @@ export default function ProductDetail() {
       </div>
 
       <button
-        onClick={() => addToCart({ ...product, quantity })}
+        onClick={() => {
+          addToCart({ ...product, quantity });
+          setCartOpen(true); // ✅ Open sidebar when adding to cart
+        }}
         disabled={!stock || stock <= 0}
         className={`mt-4 w-full text-white py-2 rounded 
           ${stock && stock > 0 ? "bg-blue-500 hover:bg-blue-600" : "bg-gray-400 cursor-not-allowed"}`}
