@@ -1,6 +1,6 @@
 "use client";
 import { useCart } from "@/context/CartContext";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 interface CartSidebarProps {
   isOpen: boolean;
@@ -10,6 +10,7 @@ interface CartSidebarProps {
 export default function CartSidebar({ isOpen, onClose }: CartSidebarProps) {
   const { cart, removeFromCart, updateCartQuantity } = useCart();
   const [stockData, setStockData] = useState<{ [key: number]: number }>({});
+  const sidebarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     async function fetchStock() {
@@ -33,11 +34,29 @@ export default function CartSidebar({ isOpen, onClose }: CartSidebarProps) {
     }
   }, [cart]);
 
+  // Handle clicks outside the sidebar
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
+        onClose();
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen, onClose]);
+
   // Calculate total cost
   const totalCost = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
 
   return (
     <div
+      ref={sidebarRef}
       className={`fixed top-0 right-0 h-full w-80 bg-white shadow-lg transform ${
         isOpen ? "translate-x-0" : "translate-x-full"
       } transition-transform duration-300 ease-in-out p-4`}
