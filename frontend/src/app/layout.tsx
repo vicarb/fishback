@@ -4,6 +4,8 @@ import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext"; // ✅ Import CartProvider
 import CartSidebar from "@/components/CartSidebar";
+import Navbar from "@/components/Navbar";
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -24,6 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <AuthProvider>
           <CartProvider>
+          <Navbar/>
             {children}
             <CartSidebar /> {/* ✅ Always present in the layout */}
           </CartProvider>
