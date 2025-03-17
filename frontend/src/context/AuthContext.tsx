@@ -19,9 +19,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
 
   const login = async (email: string, password: string) => {
-    const res = await axios.post(`${process.env.NEXT_PUBLIC_AUTH_URL}/auth/login`, { email, password });
-    localStorage.setItem("token", res.data.token);
-    fetchUser();
+    try {
+      const res = await axios.post(`${process.env.NEXT_PUBLIC_AUTH_URL}/auth/login`, {
+        email,
+        password,
+      });
+
+      localStorage.setItem("token", res.data.token);
+      fetchUser();
+    } catch (error) {
+      console.error("Login failed:", error);
+      throw error;
+    }
   };
 
   const logout = () => {
@@ -31,15 +40,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchUser = async () => {
     const token = localStorage.getItem("token");
-    if (!token) return;
+
+    if (!token) {
+      console.warn("No token found, skipping user fetch.");
+      setUser(null);
+      return;
+    }
+
     try {
       const res = await axios.get(`${process.env.NEXT_PUBLIC_AUTH_URL}/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+
       setUser(res.data);
     } catch (error) {
       console.error("Failed to fetch user:", error);
-      logout();
+      logout(); // Clear token if invalid
     }
   };
 
