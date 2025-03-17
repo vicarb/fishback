@@ -2,8 +2,13 @@
 import { useCart } from "@/context/CartContext";
 import { useEffect, useState, useRef } from "react";
 
-export default function CartSidebar() {
-  const { cart, removeFromCart, updateCartQuantity, isCartOpen, setCartOpen } = useCart();
+interface CartSidebarProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export default function CartSidebar({ isOpen, onClose }: CartSidebarProps) {
+  const { cart, removeFromCart, updateCartQuantity } = useCart();
   const [stockData, setStockData] = useState<{ [key: number]: number }>({});
   const sidebarRef = useRef<HTMLDivElement>(null);
 
@@ -18,7 +23,7 @@ export default function CartSidebar() {
           stockInfo[item.ID] = stock;
         } catch (error) {
           console.error(`Error fetching stock for product ${item.ID}:`, error);
-          stockInfo[item.ID] = 0;
+          stockInfo[item.ID] = 0; // Assume unavailable if fetch fails
         }
       }
       setStockData(stockInfo);
@@ -29,34 +34,31 @@ export default function CartSidebar() {
     }
   }, [cart]);
 
+  // ✅ Close sidebar only when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
-        setCartOpen(false);
+      if (isOpen && sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
+        onClose();
       }
     }
 
-    if (isCartOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-
+    document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isCartOpen, setCartOpen]);
+  }, [isOpen, onClose]);
 
+  // ✅ Calculate total cost
   const totalCost = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
 
   return (
     <div
       ref={sidebarRef}
       className={`fixed top-0 right-0 h-full w-80 bg-white shadow-lg transform ${
-        isCartOpen ? "translate-x-0" : "translate-x-full"
-      } transition-transform duration-300 ease-in-out p-4 z-50`}
+        isOpen ? "translate-x-0" : "translate-x-full"
+      } transition-transform duration-300 ease-in-out p-4`}
     >
-      <button onClick={() => setCartOpen(false)} className="mb-4 text-gray-600">
-        ✖ Close
-      </button>
+      <button onClick={onClose} className="mb-4 text-gray-600">✖ Close</button>
       <h2 className="text-lg font-bold">Shopping Cart</h2>
 
       <div className="mt-4">
@@ -73,24 +75,49 @@ export default function CartSidebar() {
                 </p>
               </div>
               <div className="flex items-center">
-                <button onClick={() => updateCartQuantity(item.ID, Math.max(1, item.quantity - 1))}>
+                <button
+                  onClick={() => updateCartQuantity(item.ID, Math.max(1, item.quantity - 1))}
+                  className="px-2 py-1 bg-gray-300 rounded"
+                >
                   -
                 </button>
                 <span className="px-2">{item.quantity}</span>
                 <button
-                  onClick={() => updateCartQuantity(item.ID, item.quantity + 1)}
+                  onClick={() => {
+                    if (stockData[item.ID] !== undefined && item.quantity < stockData[item.ID]) {
+                      updateCartQuantity(item.ID, item.quantity + 1);
+                    }
+                  }}
                   disabled={stockData[item.ID] !== undefined && item.quantity >= stockData[item.ID]}
+                  className={`px-2 py-1 rounded ${
+                    stockData[item.ID] !== undefined && item.quantity >= stockData[item.ID]
+                      ? "bg-gray-300 cursor-not-allowed"
+                      : "bg-gray-300"
+                  }`}
                 >
                   +
                 </button>
               </div>
-              <button onClick={() => removeFromCart(item.ID)}>Remove</button>
+              <button onClick={() => removeFromCart(item.ID)} className="text-red-500 text-sm">
+                Remove
+              </button>
             </div>
           ))
         )}
       </div>
 
-      {cart.length > 0 && <h3 className="text-lg font-semibold">Total: ${totalCost.toFixed(2)}</h3>}
+      {/* Total and Checkout */}
+      {cart.length > 0 && (
+        <div className="mt-4 border-t pt-4">
+          <h3 className="text-lg font-semibold">Total: ${totalCost.toFixed(2)}</h3>
+          <button
+            className="w-full bg-green-500 text-white py-2 mt-4 rounded"
+            onClick={() => alert("Proceeding to checkout...")}
+          >
+            Checkout
+          </button>
+        </div>
+      )}
     </div>
   );
 }
