@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors" // ✅ Import cors middleware
 	"github.com/go-redis/redis/v8"
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/driver/postgres"
@@ -26,9 +27,9 @@ var jwtSecret = []byte("your_secret_key")
 // Order Model
 type Order struct {
 	ID       uint        `gorm:"primaryKey"`
-	Email    string      `json:"email"` // Customer or guest email
+	Email    string      `json:"email"`
 	Products []OrderItem `gorm:"foreignKey:OrderID"`
-	Status   string      `gorm:"index"` // PENDING, CONFIRMED, CANCELLED, SHIPPED, DELIVERED
+	Status   string      `gorm:"index"`
 }
 
 // OrderItem Model
@@ -68,6 +69,16 @@ func connectRedis() {
 		log.Fatal("❌ Failed to connect to Redis:", err)
 	}
 	log.Println("✅ Connected to Redis")
+}
+
+// ✅ CORS Middleware
+func setupCORS() func(http.Handler) http.Handler {
+	return cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"*"}, // Allow all origins, change to specific domains in production
+		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		AllowCredentials: true,
+	})
 }
 
 // Middleware: Authenticate User
@@ -228,6 +239,10 @@ func main() {
 	connectRedis()
 
 	r := chi.NewRouter()
+
+	// ✅ Apply CORS middleware to all routes
+	r.Use(setupCORS())
+
 	r.Post("/orders", createOrder)
 	r.Get("/orders", authMiddleware(adminMiddleware(getAllOrders)))
 	r.Patch("/orders/confirm", authMiddleware(adminMiddleware(confirmOrder)))
