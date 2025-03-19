@@ -1,7 +1,8 @@
 "use client";
-import { createContext, useContext, useState, useEffect } from "react";
-import axios from "axios";
+import { createContext, useContext, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { setCookie, getCookie, deleteCookie } from "cookies-next";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface User {
   email: string;
@@ -10,7 +11,8 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => Promise<void>;
+  isLoading: boolean;
+  login: (token: string) => void;
   logout: () => void;
 }
 
@@ -18,47 +20,60 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
+  const queryClient = useQueryClient();
 
-  const login = async (email: string, password: string) => {
-    const res = await axios.post(`${process.env.NEXT_PUBLIC_AUTH_URL}/auth/login`, { email, password });
-    localStorage.setItem("token", res.data.token);
-    fetchUser();
-  };
+  useEffect(() => {
+    const token = getCookie("token");
+    if (token) {
+      fetchUser(token as string);
+    } else {
+      setIsLoading(false);
+    }
+  }, []);
 
-  const logout = () => {
-    localStorage.removeItem("token");
-    setUser(null);
-    router.push("/login");
-  };
-
-  const fetchUser = async () => {
-    const token = localStorage.getItem("token");
-    if (!token) return;
-
+  const fetchUser = async (token: string) => {
     try {
-      const res = await axios.get(`${process.env.NEXT_PUBLIC_AUTH_URL}/auth/me`, {
+      const res = await fetch("/api/auth/me", {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setUser(res.data);
-    } catch {
+
+      if (!res.ok) throw new Error("Unauthorized");
+
+      const userData = await res.json();
+      setUser(userData);
+    } catch (error) {
+      console.error("Error fetching user:", error);
       logout();
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchUser();
-  }, []);
+  const login = (token: string) => {
+    setCookie("token", token, { path: "/", secure: true, sameSite: "Strict" });
+    fetchUser(token);
+    queryClient.invalidateQueries(["dashboardStats"]); // Refetch dashboard data
+    router.push("/"); // Redirect after login
+  };
+
+  const logout = () => {
+    deleteCookie("token");
+    setUser(null);
+    queryClient.invalidateQueries(["dashboardStats"]); // Clear dashboard cache
+    router.push("/login"); // Redirect to login page
+  };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-export const useAuth = () => {
+export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) throw new Error("useAuth must be used within an AuthProvider");
+  if (!context) throw new Error("useAuth must be used within AuthProvider");
   return context;
-};
+}

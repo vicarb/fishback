@@ -13,9 +13,19 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await login(email, password);
-      router.push("/");
+      console.log("🚀 Logging in with:", email, password);
+      
+      const success = await login(email, password);
+      
+      if (success) {
+        console.log("✅ Login successful! Redirecting...");
+        router.push("/admin"); // Redirect to admin dashboard
+      } else {
+        console.error("❌ Login failed");
+        alert("Invalid credentials");
+      }
     } catch (error) {
+      console.error("❌ Login error:", error);
       alert("Login failed");
     }
   };

@@ -1,60 +1,56 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "../context/AuthContext"; // Use Auth Context
+
+// Fetch admin stats
+const fetchDashboardStats = async () => {
+  const res = await fetch("/api/admin/dashboard", {
+    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+  });
+
+  if (!res.ok) throw new Error("Unauthorized");
+  return res.json();
+};
 
 export default function AdminHome() {
-  const [orderCount, setOrderCount] = useState(0);
-  const [pendingOrders, setPendingOrders] = useState(0);
-  const [productCount, setProductCount] = useState(0);
+  const router = useRouter();
+  const { user } = useAuth();
 
   useEffect(() => {
-    async function fetchDashboardStats() {
-      try {
-        const orderRes = await fetch("http://localhost:8081/orders", {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-        });
-        const productRes = await fetch("http://localhost:8083/products");
-
-        if (orderRes.ok) {
-          const orders = await orderRes.json();
-          setOrderCount(orders.length);
-          setPendingOrders(orders.filter((o: any) => o.Status === "PENDING").length);
-        }
-
-        if (productRes.ok) {
-          const products = await productRes.json();
-          setProductCount(products.length);
-        }
-      } catch (error) {
-        console.error("Error fetching dashboard stats:", error);
-      }
+    if (!user) {
+      router.push("/login"); // Redirect if not logged in
+    } else if (user.role !== "admin") {
+      router.push("/"); // Redirect if not an admin
     }
+  }, [user, router]);
 
-    fetchDashboardStats();
-  }, []);
+  const { data, error, isLoading } = useQuery({
+    queryKey: ["dashboardStats"],
+    queryFn: fetchDashboardStats,
+    enabled: !!user, // Wait until user data is loaded
+  });
+
+  if (!user) return <p>Checking authentication...</p>;
+  if (user.role !== "admin") return <p>Access Denied</p>;
 
   return (
     <main className="min-h-screen bg-gray-100 p-6">
       <h1 className="text-3xl font-bold mb-6">Admin Dashboard</h1>
 
-      {/* Dashboard Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <DashboardCard
-          title="Total Orders"
-          value={orderCount}
-          link="/orders"
-        />
-        <DashboardCard
-          title="Pending Orders"
-          value={pendingOrders}
-          link="/orders"
-        />
-        <DashboardCard
-          title="Total Products"
-          value={productCount}
-          link="/products"
-        />
-      </div>
+      {isLoading ? (
+        <p>Loading...</p>
+      ) : error ? (
+        <p className="text-red-500">Error loading dashboard</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <DashboardCard title="Total Orders" value={data.orderCount} link="/orders" />
+          <DashboardCard title="Pending Orders" value={data.pendingOrders} link="/orders" />
+          <DashboardCard title="Total Products" value={data.productCount} link="/products" />
+        </div>
+      )}
     </main>
   );
 }
