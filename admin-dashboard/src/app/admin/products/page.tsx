@@ -17,10 +17,11 @@ export default function AdminProducts() {
   const fetchProductsWithStock = async () => {
     const productRes = await fetch('http://localhost:8083/products')
     const products: Product[] = await productRes.json()
+    console.log(products)
 
     const withStock = await Promise.all(
       products.map(async (p) => {
-        const res = await fetch(`http://localhost:8082/inventory?product_id=${p.id}`)
+        const res = await fetch(`http://localhost:8082/inventory?product_id=${p.ID}`)
         const text = await res.text()
         const stock = parseInt(text.replace(/\D/g, '')) || 0
         return { ...p, stock }
@@ -114,7 +115,7 @@ export default function AdminProducts() {
           </thead>
           <tbody>
             {products.map((p) => (
-              <tr key={p.id} className="border-b hover:bg-gray-50">
+              <tr key={`product-${p.id ?? Math.random()}`} className="border-b hover:bg-gray-50">
                 <td className="py-2">{p.id}</td>
                 <td>{p.name}</td>
                 <td>${p.price.toFixed(2)}</td>
