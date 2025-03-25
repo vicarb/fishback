@@ -1,6 +1,8 @@
 'use client'
 
+import React from 'react'
 import { useEffect, useState } from 'react'
+import AdjustStockForm from '@/components/AdjustStockForm'
 
 type Product = {
   id: number
@@ -13,6 +15,8 @@ export default function AdminProducts() {
   const [products, setProducts] = useState<Product[]>([])
   const [form, setForm] = useState({ name: '', price: '', stock: '' })
   const [loading, setLoading] = useState(false)
+  const [showAdjust, setShowAdjust] = useState<number | null>(null)
+
 
   const fetchProductsWithStock = async () => {
     const productRes = await fetch('http://localhost:8083/products')
@@ -21,7 +25,7 @@ export default function AdminProducts() {
 
     const withStock = await Promise.all(
       products.map(async (p) => {
-        const res = await fetch(`http://localhost:8082/inventory?product_id=${p.ID}`)
+        const res = await fetch(`http://localhost:8082/inventory?product_id=${p.id}`)
         const text = await res.text()
         const stock = parseInt(text.replace(/\D/g, '')) || 0
         return { ...p, stock }
@@ -114,14 +118,33 @@ export default function AdminProducts() {
             </tr>
           </thead>
           <tbody>
-            {products.map((p) => (
-              <tr key={`product-${p.ID ?? Math.random()}`} className="border-b hover:bg-gray-50">
-                <td className="py-2">{p.ID}</td>
+          {products.map((p) => (
+            <React.Fragment key={`product-fragment-${p.id}`}>
+              <tr className="border-b hover:bg-gray-50">
+                <td className="py-2">{p.id}</td>
                 <td>{p.name}</td>
                 <td>${p.price.toFixed(2)}</td>
-                <td>{p.stock}</td>
+                <td>
+                  {p.stock}
+                  <button
+                    onClick={() => setShowAdjust(showAdjust === p.id ? null : p.id)}
+                    className="ml-2 text-sm text-blue-600 hover:underline"
+                  >
+                    {showAdjust === p.id ? 'Cancelar' : 'Ajustar'}
+                  </button>
+                </td>
               </tr>
-            ))}
+              {showAdjust === p.id && (
+                <tr key={`adjust-${p.id}`}>
+                  <td colSpan={4}>
+                    <AdjustStockForm productId={p.id} onSuccess={fetchProductsWithStock} />
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          ))}
+          
+          
           </tbody>
         </table>
       </div>

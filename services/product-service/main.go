@@ -19,7 +19,7 @@ var db *gorm.DB
 
 // Product model (No stock field)
 type Product struct {
-	ID    uint    `gorm:"primaryKey"`
+	ID    uint    `gorm:"primaryKey" json:"id"` // this will give lowercase "id"
 	Name  string  `json:"name"`
 	Price float64 `json:"price"`
 }
