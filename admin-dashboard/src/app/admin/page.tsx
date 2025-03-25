@@ -34,14 +34,29 @@ export default function AdminPage() {
       })
   }, [router])
 
-  if (!user) {
-    return <p className="p-4">Cargando...</p>
-  }
+  if (!user) return <p className="p-6 text-gray-500">Cargando panel...</p>
 
   return (
-    <div className="p-6">
-      <h1 className="text-3xl font-bold">Bienvenido, Admin</h1>
-      <p className="mt-2 text-gray-600">Email: {user.email}</p>
+    <div className="min-h-screen bg-gray-100">
+      <header className="bg-white shadow p-6 flex justify-between items-center">
+        <h1 className="text-2xl font-bold text-gray-800">Panel de Administración</h1>
+        <button
+          className="text-sm text-red-600 font-semibold"
+          onClick={() => {
+            localStorage.removeItem('token')
+            router.push('/login')
+          }}
+        >
+          Cerrar sesión
+        </button>
+      </header>
+
+      <main className="p-6">
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+          <h2 className="text-xl font-semibold text-gray-700 mb-2">Bienvenido, {user.email}</h2>
+          <p className="text-sm text-gray-500">Rol: {user.role}</p>
+        </div>
+      </main>
     </div>
   )
 }
