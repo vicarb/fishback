@@ -52,11 +52,18 @@ export default function AdminPage() {
       </header>
 
       <main className="p-6">
-        <div className="bg-white p-6 rounded-xl shadow-lg">
-          <h2 className="text-xl font-semibold text-gray-700 mb-2">Bienvenido, {user.email}</h2>
-          <p className="text-sm text-gray-500">Rol: {user.role}</p>
-        </div>
-      </main>
+      <div className="bg-white p-6 rounded-xl shadow-lg">
+        <h2 className="text-xl font-semibold text-gray-700 mb-4">Admin Panel</h2>
+        <ul className="space-y-2">
+          <li>
+            <a href="/admin/products" className="text-blue-600 hover:underline">
+              ➕ Crear y ver productos
+            </a>
+          </li>
+        </ul>
+      </div>
+    </main>
+    
     </div>
   )
 }
