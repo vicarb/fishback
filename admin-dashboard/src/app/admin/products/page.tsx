@@ -115,8 +115,8 @@ export default function AdminProducts() {
           </thead>
           <tbody>
             {products.map((p) => (
-              <tr key={`product-${p.id ?? Math.random()}`} className="border-b hover:bg-gray-50">
-                <td className="py-2">{p.id}</td>
+              <tr key={`product-${p.ID ?? Math.random()}`} className="border-b hover:bg-gray-50">
+                <td className="py-2">{p.ID}</td>
                 <td>{p.name}</td>
                 <td>${p.price.toFixed(2)}</td>
                 <td>{p.stock}</td>
