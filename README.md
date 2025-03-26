@@ -16,3 +16,4 @@ to do:
 -checkout
 -order creation
 -user orders history
+-implement logistics
